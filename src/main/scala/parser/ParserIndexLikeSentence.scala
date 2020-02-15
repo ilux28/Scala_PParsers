@@ -173,21 +173,14 @@ class ParserIndexLikeSentence extends RegexParsers {
   def `universalSentence`: Parser[io.Serializable] =
     `indexUniversal` |
       `basicBodySentence`
+
   /** *
-   * Method returning the result based on the prepared data of the auxiliary array
+   * Method replaced result buffer @param = bufferOtherSentence in compliance with notBrackets policy
    */
-  //TODO May require refactoring 26.12.19
-
-  def commonSentenceWorkerVariant: Parser[IndexApacheLog] = rep1(`universalSentence`) ^^ { _ =>
-    bufferWithoutIndex = bufferOtherSentence.filter(x => {
-      x.contains(">") || x.contains("<") || x.contains("=")
-    }).map(str => s"""["${str.split("\\W")(0)}"]""")
+  def notFilterConverter() = {
     var bufferRemoveElements: mutable.Buffer[Int] = mutable.Buffer[Int]()
-
-    def strIsExistCurrentBoolExpr(x: Int) = patternOneBool.findFirstIn(bufferOtherSentence(x).toLowerCase).getOrElse("")
-
+    def strIsExistCurrentBoolExpr (x: Int) = patternOneBool.findFirstIn(bufferOtherSentence(x).toLowerCase).getOrElse("")
     def strIsExistPreviewBoolExpr(x: Int) = patternTwoBool.findFirstIn(bufferOtherSentence(x - 1).toLowerCase).getOrElse("")
-
     for (x <- bufferOtherSentence.indices) {
       if (bufferOtherSentence(x) == "!(") {
         if (bufferOtherSentence(x + 1).contains('(')) {
@@ -203,26 +196,43 @@ class ParserIndexLikeSentence extends RegexParsers {
       }
     }
     bufferRemoveElements.reverse.foreach(elementNumber => bufferOtherSentence.remove(elementNumber))
-    bufferOtherSentence = bufferOtherSentence.filterNot(x => x == "")
 
-    /*
+  }
+
+  /** *
+   * Method replaced result buffer @param = bufferOtherSentence in compliance with andBrackets policy
+   * @return countBracketsString consistent some endBrackets " ) "
+   */
+
+  def andFilterConverter(): mutable.Seq[Char] = {
+    val countBracketsString: mutable.StringBuilder = new mutable.StringBuilder("")
     for (x <- bufferOtherSentence.indices) {
-      if (bufferOtherSentence(x) == "OR" && x > 0) {
-        if (!bufferOtherSentence(x + 1).contains("!(") && !bufferOtherSentence(x - 1).contains("!(") &&
-          bufferOtherSentence(x + 1).contains("(") && bufferOtherSentence(x - 1).contains("(")) {
-          bufferOtherSentence(x + 1) = s"${bufferOtherSentence(x + 1).replace("(", "")}"
-          bufferOtherSentence(x - 1) = s"${bufferOtherSentence(x - 1).replace(")", "")}"
-        } else if (!bufferOtherSentence(x + 1).contains("!(") && !bufferOtherSentence(x - 1).contains("!(") &&
-          !bufferOtherSentence(x + 1).contains("(") && !bufferOtherSentence(x - 1).contains("(")) {
-          bufferOtherSentence(x + 1) = s"${bufferOtherSentence(x + 1)})"
-          bufferOtherSentence(x - 1) = s"(${bufferOtherSentence(x - 1)}"
-        }
+      if (bufferOtherSentence(x) == "AND" && x > 0) {
+        bufferOtherSentence(x + 1) = s"(${bufferOtherSentence(x + 1)}"
+        countBracketsString ++= ")"
+      } else if(bufferOtherSentence(x).contains("AND")) {
+        bufferOtherSentence(x) = bufferOtherSentence(x).replace("AND ", "AND (")
+        countBracketsString ++= ")"
       }
     }
-    */
+    countBracketsString
+  }
 
-    //bufferOtherSentence = bufferOtherSentence.map(_.trim).mkString(" ").trim.split(" ").toBuffer
+   /** *
+   * Method returning the result based on the prepared data of the auxiliary array
+   */
 
+  //TODO May require refactoring 26.12.19
+
+  def commonSentenceWorkerVariant: Parser[IndexApacheLog] = rep1(`universalSentence`) ^^ { _ =>
+    bufferWithoutIndex = bufferOtherSentence.filter(x => {
+      x.contains(">") || x.contains("<") || x.contains("=")
+    }).map(str => s"""["${str.split("\\W")(0)}"]""")
+
+    notFilterConverter()
+    bufferOtherSentence = bufferOtherSentence.filterNot(x => x == "")
+    //val  countBracketsString = andFilterConverter()
+    //bufferOtherSentence(bufferOtherSentence.length - 1) = s"""${bufferOtherSentence.last}${countBracketsString.toString()}"""
     IndexApacheLog(bufferIndexLog, bufferOtherSentence.mkString(" "))
   }
 
