@@ -15,6 +15,9 @@ import scala.util.parsing.combinator._
 
 class ParserIndexLikeSentence extends RegexParsers {
 
+
+  val  patternOneBool = "and|or|not".r
+  val  patternTwoBool = "and|or|!\\(".r
   /***
    * Auxiliary arrays, processing of which, added in result
    */
@@ -23,6 +26,8 @@ class ParserIndexLikeSentence extends RegexParsers {
   var bufferOtherSentence: mutable.Buffer[String] = mutable.Buffer[String]()
   var bufferWithoutIndex: mutable.Buffer[String] = mutable.Buffer[String]()
   var bufferWithBoolSentence: mutable.Buffer[String] = mutable.Buffer[String]()
+
+  var treeBoolSentence: mutable.TreeSet[String] = mutable.TreeSet[String]()
 
   //-------------------------------------------------------------------//
 
@@ -81,8 +86,8 @@ class ParserIndexLikeSentence extends RegexParsers {
   /**
    * For parsing boolean expressions type "AND|OR|NOT"
    */
-  def `anyBooleanSentence`: Parser[String] = "AND|OR|NOT".r ^^ { str => {
-    val strRes = if (str == "NOT") s"!(" else str
+  def `anyBooleanSentence`: Parser[String] = "AND|OR|NOT|And|ANd|aNd|AnD|anD|Or|oR|Not|NoT|nOT|noT|nOt".r ^^ { str => {
+    val strRes = if (str.toLowerCase() == "not") s"!(" else str.toUpperCase()
     strRes
   } }
 
@@ -102,7 +107,6 @@ class ParserIndexLikeSentence extends RegexParsers {
 
   /***
    * Method for parsing all other expressions for perhaps variants type 'col1='20*'
-   *
    * @return
    */
 
@@ -169,38 +173,59 @@ class ParserIndexLikeSentence extends RegexParsers {
   def `universalSentence`: Parser[io.Serializable] =
     `indexUniversal` |
       `basicBodySentence`
-
   /** *
    * Method returning the result based on the prepared data of the auxiliary array
    */
   //TODO May require refactoring 26.12.19
 
-  def commonSentenceTwoVariant: Parser[IndexApacheLog] = rep1(`universalSentence`) ^^ { _ =>
-
+  def commonSentenceWorkerVariant: Parser[IndexApacheLog] = rep1(`universalSentence`) ^^ { _ =>
     bufferWithoutIndex = bufferOtherSentence.filter(x => {
       x.contains(">") || x.contains("<") || x.contains("=")
     }).map(str => s"""["${str.split("\\W")(0)}"]""")
     var bufferRemoveElements: mutable.Buffer[Int] = mutable.Buffer[Int]()
+
+    def strIsExistCurrentBoolExpr(x: Int) = patternOneBool.findFirstIn(bufferOtherSentence(x).toLowerCase).getOrElse("")
+
+    def strIsExistPreviewBoolExpr(x: Int) = patternTwoBool.findFirstIn(bufferOtherSentence(x - 1).toLowerCase).getOrElse("")
+
     for (x <- bufferOtherSentence.indices) {
       if (bufferOtherSentence(x) == "!(") {
         if (bufferOtherSentence(x + 1).contains('(')) {
-          bufferOtherSentence(x + 1) == s"!${bufferOtherSentence(x + 1)}"
+          bufferOtherSentence(x + 1) = s"!${bufferOtherSentence(x + 1)}"
         } else {
           bufferOtherSentence(x + 1) = s"!(${bufferOtherSentence(x + 1)})"
         }
         bufferRemoveElements += x
-      } else if (bufferOtherSentence(x).contains("_raw") && x != 0) {
-        if (!bufferOtherSentence(x - 1).equalsIgnoreCase("AND") &&
-          !bufferOtherSentence(x - 1).equalsIgnoreCase("OR") &&
-          !bufferOtherSentence(x - 1).equalsIgnoreCase("!(")) {
+      } else if (strIsExistCurrentBoolExpr(x) == "" && x != 0 && bufferOtherSentence(x) != "") {
+        if (strIsExistPreviewBoolExpr(x) == "") {
           bufferOtherSentence(x) = s"AND ${bufferOtherSentence(x)}"
         }
       }
     }
     bufferRemoveElements.reverse.foreach(elementNumber => bufferOtherSentence.remove(elementNumber))
-    val resBufferOtherSentence = bufferOtherSentence.map(_.trim).mkString(" ").trim
-    IndexApacheLog(bufferIndexLog, resBufferOtherSentence)
+    bufferOtherSentence = bufferOtherSentence.filterNot(x => x == "")
+
+    /*
+    for (x <- bufferOtherSentence.indices) {
+      if (bufferOtherSentence(x) == "OR" && x > 0) {
+        if (!bufferOtherSentence(x + 1).contains("!(") && !bufferOtherSentence(x - 1).contains("!(") &&
+          bufferOtherSentence(x + 1).contains("(") && bufferOtherSentence(x - 1).contains("(")) {
+          bufferOtherSentence(x + 1) = s"${bufferOtherSentence(x + 1).replace("(", "")}"
+          bufferOtherSentence(x - 1) = s"${bufferOtherSentence(x - 1).replace(")", "")}"
+        } else if (!bufferOtherSentence(x + 1).contains("!(") && !bufferOtherSentence(x - 1).contains("!(") &&
+          !bufferOtherSentence(x + 1).contains("(") && !bufferOtherSentence(x - 1).contains("(")) {
+          bufferOtherSentence(x + 1) = s"${bufferOtherSentence(x + 1)})"
+          bufferOtherSentence(x - 1) = s"(${bufferOtherSentence(x - 1)}"
+        }
+      }
+    }
+    */
+
+    //bufferOtherSentence = bufferOtherSentence.map(_.trim).mkString(" ").trim.split(" ").toBuffer
+
+    IndexApacheLog(bufferIndexLog, bufferOtherSentence.mkString(" "))
   }
+
 
   /***
    * Case class in method @toString forming resulting to JSON
@@ -210,7 +235,7 @@ class ParserIndexLikeSentence extends RegexParsers {
     val apBuffer: mutable.Buffer[String] = bufferIndexLogs.map(_.stripPrefix("\"").stripSuffix("\""))
     override def toString: String = {
       if (apBuffer.isEmpty) {
-        s"""{"query":{"query": "$groupCol", "fields": ${bufferWithoutIndex.mkString(", ")}}"""
+        s"""{"query":"$groupCol","fields": ${bufferWithoutIndex.mkString(", ")}}"""
       } else {
       apBuffer.map(ap => {
         s"""{"$ap":{"query": "$groupCol", "tws": 0, "twf": 0}}"""
@@ -236,7 +261,7 @@ class ParserIndexLikeSentence extends RegexParsers {
 object ParserIndexLikeSentence {
   def getParser(str: String): String = {
     val  createParserInstance = new ParserIndexLikeSentence
-    createParserInstance.parseResult(createParserInstance.commonSentenceTwoVariant, str)
+    createParserInstance.parseResult(createParserInstance.commonSentenceWorkerVariant, str)
   }
 }
 

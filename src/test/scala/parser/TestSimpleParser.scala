@@ -75,10 +75,9 @@ class TestSimpleParser extends FunSuite {
   }
 
   test("Check methods for SimpleParser class for case test 11 for parsing string \"index=test col1=\\\"test value\\\"\"") {
-    val simpleParser = new ParserIndexLikeSentence
     val str = "index=test col1=\"test value\""
     val compareStr = s"""{"test":{"query": "col1=\\'test value\\'", "tws": 0, "twf": 0}}"""
-    val testStr = simpleParser.parseResult(simpleParser.commonSentenceTwoVariant, str)
+    val testStr = ParserIndexLikeSentence.getParser(str)
     assert(testStr == compareStr)
   }
 
