@@ -13,7 +13,7 @@ import scala.util.parsing.combinator._
  * If method `anyMethod` return Parser is type String, then function is on the right of ^^ must return String.
  */
 
-class ParserIndexLikeSentence extends RegexParsers {
+class IndexLikeSentenceConverter extends RegexParsers {
 
 
   val  patternOneBool = "and|or|not".r
@@ -130,12 +130,22 @@ class ParserIndexLikeSentence extends RegexParsers {
           s"${col.substring(0, col.length - 1)} rlike \\'${anySent.replaceAll("""\*""", """.*""").replaceAll(""""""", """""")}\\'"
         } else {
           if (col == "" && !anySent.contains("%")) {
+            val anySentTemp = anySent.replaceAll("""\\""", """""")
+            s"""_raw like \'%${anySentTemp.toString().substring(1, anySentTemp.length - 1)}%\'"""
+          } else if (col == "" && anySent.contains("%")) {
+            s"""_raw rlike \'${anySent.substring(1, anySent.length - 1)}\'"""
+          } else {
+            "%s%s".format(col, anySent.replaceAll("([\"'])", """\\'"""))
+          }
+          /*
+          if (col == "" && !anySent.contains("%")) {
             s"_raw like \\'%${anySent.substring(1, anySent.length - 1)}%\\'"
           } else if (col == "" && anySent.contains("%")) {
             s"_raw rlike \\'${anySent.substring(1, anySent.length - 1)}\\'"
           } else {
             "%s%s".format(col, anySent.replaceAll("([\"'])", """\\'"""))
           }
+           */
         }
         bufferWithBoolSentence += res
         res
@@ -233,6 +243,7 @@ class ParserIndexLikeSentence extends RegexParsers {
     bufferOtherSentence = bufferOtherSentence.filterNot(x => x == "")
     //val  countBracketsString = andFilterConverter()
     //bufferOtherSentence(bufferOtherSentence.length - 1) = s"""${bufferOtherSentence.last}${countBracketsString.toString()}"""
+    //println(bufferOtherSentence.mkString(" "))
     IndexApacheLog(bufferIndexLog, bufferOtherSentence.mkString(" "))
   }
 
@@ -268,17 +279,20 @@ class ParserIndexLikeSentence extends RegexParsers {
   }
 }
 
-object ParserIndexLikeSentence {
+object IndexLikeSentenceConverter {
   def getParser(str: String): String = {
-    val  createParserInstance = new ParserIndexLikeSentence
+    val  createParserInstance = new IndexLikeSentenceConverter
     createParserInstance.parseResult(createParserInstance.commonSentenceWorkerVariant, str)
   }
 }
 
 object SimpleParser {
   def main(args: Array[String]): Unit = {
-    val str = s"""NOT "%cpu%" OR NOT "%sss%" AND NOT "%ddd%""""
+    val str = s"""index=test (text=\"RUB\" text{2}.val!=null) OR 1=1""""
+    val originalSpl = s"""index=test (text=\"RUB\" text{2}.val!=null) OR 1=1""""
+    //{"test":{"query": "((text=\"RUB\") AND ('text{2}.val'!=\"null\") OR (1=1))", "tws": 0, "twf": 0}}
     //val str = s"""index=test NOT col1=20"""
-    println(ParserIndexLikeSentence.getParser(str))
+    //println("""{"test":{"query": "((text=\"RUB\") AND ('text{2}.val'!=\"null\") OR (1=1))", "tws": 0, "twf": 0}}""")
+    println(IndexLikeSentenceConverter.getParser(str))
   }
 }
