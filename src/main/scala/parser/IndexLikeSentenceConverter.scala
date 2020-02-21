@@ -16,8 +16,6 @@ import scala.util.parsing.combinator._
 class IndexLikeSentenceConverter extends RegexParsers {
 
 
-  val  patternOneBool = "and|or|not".r
-  val  patternTwoBool = "and|or|!\\(".r
   /***
    * Auxiliary arrays, processing of which, added in result
    */
@@ -59,6 +57,8 @@ class IndexLikeSentenceConverter extends RegexParsers {
   def `sentenceWithRightBrackets`: Parser[String] = """[^"|']+["|']""".r  ^^ {  _.toString  }
 
   def `sentenceWithLeftBrackets`: Parser[String] = """["|'][^"|'\s]+""".r  ^^ { _.toString }
+
+  def `sentenceWithoutPoint`: Parser[String] = """["|'][^"|'\s]+""".r  ^^ { _.toString }
 
   /**
    * For parsing expressions type "index\\s?=\\s?\\S+".r
@@ -131,21 +131,17 @@ class IndexLikeSentenceConverter extends RegexParsers {
         } else {
           if (col == "" && !anySent.contains("%")) {
             val anySentTemp = anySent.replaceAll("""\\""", """""")
-            s"""_raw like \'%${anySentTemp.toString().substring(1, anySentTemp.length - 1)}%\'"""
+            s"""_raw like \'%${anySentTemp.substring(1, anySentTemp.length - 1)}%\'"""
           } else if (col == "" && anySent.contains("%")) {
             s"""_raw rlike \'${anySent.substring(1, anySent.length - 1)}\'"""
           } else {
-            "%s%s".format(col, anySent.replaceAll("([\"'])", """\\'"""))
+            if (col != "" && !anySent.contains(""""""")) {
+              val sentTemp = "null".r.replaceFirstIn(anySent, s"""\\"null\\"""")
+              s"""$col$sentTemp"""
+            } else {
+              "%s%s".format(col, anySent.replaceAll("([\"'])", """\\'"""))
+            }
           }
-          /*
-          if (col == "" && !anySent.contains("%")) {
-            s"_raw like \\'%${anySent.substring(1, anySent.length - 1)}%\\'"
-          } else if (col == "" && anySent.contains("%")) {
-            s"_raw rlike \\'${anySent.substring(1, anySent.length - 1)}\\'"
-          } else {
-            "%s%s".format(col, anySent.replaceAll("([\"'])", """\\'"""))
-          }
-           */
         }
         bufferWithBoolSentence += res
         res
@@ -184,13 +180,18 @@ class IndexLikeSentenceConverter extends RegexParsers {
     `indexUniversal` |
       `basicBodySentence`
 
+  //val  patternOneBoolExist = "and|or|not".r
+  //val  patternTwoBoolExist = "and|or|!\\(".r
+  val  patternBeginBoolExist = """^(and|or|!\().*""".r
+  val  patternEndBoolExist = """.*(and|or|!\()$""".r
+
   /** *
    * Method replaced result buffer @param = bufferOtherSentence in compliance with notBrackets policy
    */
   def notFilterConverter() = {
     var bufferRemoveElements: mutable.Buffer[Int] = mutable.Buffer[Int]()
-    def strIsExistCurrentBoolExpr (x: Int) = patternOneBool.findFirstIn(bufferOtherSentence(x).toLowerCase).getOrElse("")
-    def strIsExistPreviewBoolExpr(x: Int) = patternTwoBool.findFirstIn(bufferOtherSentence(x - 1).toLowerCase).getOrElse("")
+    def strIsCurrentBeginWithBoolExpr (x: Int) = patternBeginBoolExist.findFirstIn(bufferOtherSentence(x).toLowerCase).getOrElse("")
+    def strIsPreviewEndWithBoolExpr (x: Int) = patternEndBoolExist.findFirstIn(bufferOtherSentence(x - 1).toLowerCase).getOrElse("")
     for (x <- bufferOtherSentence.indices) {
       if (bufferOtherSentence(x) == "!(") {
         if (bufferOtherSentence(x + 1).contains('(')) {
@@ -199,14 +200,13 @@ class IndexLikeSentenceConverter extends RegexParsers {
           bufferOtherSentence(x + 1) = s"!(${bufferOtherSentence(x + 1)})"
         }
         bufferRemoveElements += x
-      } else if (strIsExistCurrentBoolExpr(x) == "" && x != 0 && bufferOtherSentence(x) != "") {
-        if (strIsExistPreviewBoolExpr(x) == "") {
+      } else if (strIsCurrentBeginWithBoolExpr(x) == "" && x != 0 && bufferOtherSentence(x) != "") {
+        if (strIsPreviewEndWithBoolExpr(x) == "") {
           bufferOtherSentence(x) = s"AND ${bufferOtherSentence(x)}"
         }
       }
     }
     bufferRemoveElements.reverse.foreach(elementNumber => bufferOtherSentence.remove(elementNumber))
-
   }
 
   /** *
@@ -246,7 +246,6 @@ class IndexLikeSentenceConverter extends RegexParsers {
     //println(bufferOtherSentence.mkString(" "))
     IndexApacheLog(bufferIndexLog, bufferOtherSentence.mkString(" "))
   }
-
 
   /***
    * Case class in method @toString forming resulting to JSON
@@ -288,11 +287,11 @@ object IndexLikeSentenceConverter {
 
 object SimpleParser {
   def main(args: Array[String]): Unit = {
-    val str = s"""index=test (text=\"RUB\" text{2}.val!=null) OR 1=1""""
-    val originalSpl = s"""index=test (text=\"RUB\" text{2}.val!=null) OR 1=1""""
+    val str = s"""index=test text=RUB text{2}.val!=null OR (1=1))"""
+    //val originalSpl = s"""index=test (text=\"RUB\" text{2}.val!=null) OR 1=1""""
     //{"test":{"query": "((text=\"RUB\") AND ('text{2}.val'!=\"null\") OR (1=1))", "tws": 0, "twf": 0}}
     //val str = s"""index=test NOT col1=20"""
-    //println("""{"test":{"query": "((text=\"RUB\") AND ('text{2}.val'!=\"null\") OR (1=1))", "tws": 0, "twf": 0}}""")
+    println("""{"test": {"query": "('num{1}.val'=10)", "tws": 0, "twf": 0}}""")
     println(IndexLikeSentenceConverter.getParser(str))
   }
 }
