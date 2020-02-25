@@ -79,7 +79,7 @@ class IndexLikeSentenceConverterTest extends FunSuite {
   test("Check methods for SimpleParser class for case test 10 for parsing string " +
     "\"index=test col1=\\\"20\\\"\"") {
     val str = "index=test col1=\"20\""
-    val compareStr = s"""{"test":{"query": "col1=\\'20\\'", "tws": 0, "twf": 0}}"""
+    val compareStr = s"""{"test":{"query": "col1=\\"20\\"", "tws": 0, "twf": 0}}"""
     val testStr = IndexLikeSentenceConverter.getParser(str)
     assert(testStr == compareStr)
   }
@@ -87,7 +87,7 @@ class IndexLikeSentenceConverterTest extends FunSuite {
   test("Check methods for SimpleParser class for case test 11 for parsing string " +
     "\"index=test col1=\\\"test value\\\"\"") {
     val str = "index=test col1=\"test value\""
-    val compareStr = s"""{"test":{"query": "col1=\\'test value\\'", "tws": 0, "twf": 0}}"""
+    val compareStr = s"""{"test":{"query": "col1=\\"test value\\"", "tws": 0, "twf": 0}}"""
     val testStr = IndexLikeSentenceConverter.getParser(str)
     assert(testStr == compareStr)
   }
@@ -237,7 +237,7 @@ class IndexLikeSentenceConverterTest extends FunSuite {
   test("Check methods for SimpleParser class for case test 30 for parsing string " +
     "NOT \"%cpu%\" OR NOT \"%sss%\" AND NOT \"%ddd%\"") {
     val str = "NOT \"%cpu%\" OR NOT \"%sss%\" AND NOT \"%ddd%\""
-    val compareStr = s"""{"query":"!(_raw rlike '%cpu%') OR !(_raw rlike '%sss%') AND !(_raw rlike '%ddd%')","fields": }"""
+    val compareStr = s"""{"query": "!(_raw rlike '%cpu%') OR !(_raw rlike '%sss%') AND !(_raw rlike '%ddd%')","fields": }"""
     val testStr = IndexLikeSentenceConverter.getParser(str)
     assert(testStr == compareStr)
   }
