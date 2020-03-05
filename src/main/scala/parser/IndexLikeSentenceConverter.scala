@@ -1,6 +1,9 @@
 package parser
 
 import java.io
+import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 import scala.collection.mutable
 import scala.util.parsing.combinator._
@@ -25,6 +28,9 @@ class IndexLikeSentenceConverter extends RegexParsers {
   var bufferIndexLog: mutable.Buffer[String] = mutable.Buffer[String]()
   var bufferOtherSentence: mutable.Buffer[String] = mutable.Buffer[String]()
   var bufferWithoutIndex: mutable.Buffer[String] = mutable.Buffer[String]()
+
+  var tws = 0
+  var twf = 0
 
   //-------------------------------------------------------------------//
 
@@ -129,26 +135,86 @@ class IndexLikeSentenceConverter extends RegexParsers {
           } else if (col == "" && anySent.contains("%")) {
             s"""_raw rlike \'${anySent.substring(1, anySent.length - 1)}\'"""
           } else {
-            if (col != "" && !anySent.contains(""""""")) {
-              val regCompareExpressions = """[!<>=]""".r
-              val preMatch = regCompareExpressions.findFirstIn(col).getOrElse("")
-              val indexFindChar = col.indexOf(preMatch, 0)
-              val colRes = if (col.contains(""".""")) {
-                s""" '${col.substring(0, indexFindChar)}'${col.substring(indexFindChar, col.length)}"""
-              } else col
+            val regCompareExpressions = """[!<>=]""".r
+            val preMatch = regCompareExpressions.findFirstIn(col).getOrElse("")
+            val indexFindChar = col.indexOf(preMatch, 0)
+            val colBase = col.substring(0, indexFindChar)
+            val colTail = col.substring(indexFindChar, col.length)
+            val colRes = if (col.contains(""".""")) { s""" '$colBase'$colTail""" } else col
+            val regEarliestLatest = "earliest|latest".r
+            val isContainsTimeBound = regEarliestLatest.findFirstIn(colBase).getOrElse("") != ""
+            val regDoubleQuotes = """"""".r
+            val isExistDoubleQuotes = regDoubleQuotes.findFirstIn(anySent).getOrElse("") != ""
+            if (col != "" && !isExistDoubleQuotes) {
+              if (isContainsTimeBound) {
+                colBase match {
+                  case "earliest" => {
+                    tws = anySent.toInt
+                  }
+                  case "latest" => {
+                    twf = anySent.toInt
+                  }
+                }
+                ""
+              } else {
+                val sentRes = "null".r.replaceFirstIn(anySent, """\\"null\\"""")
+                s"""$colRes$sentRes"""
+              }
               //s"""'${col.substring(0, col.length - 1)}'${col.last}"""
-              val sentRes = "null".r.replaceFirstIn(anySent, """\\"null\\"""")
-              s"""$colRes$sentRes"""
             } else {
-              val tempRes = anySent.replaceAll("([\"'])", """\\"""")
-              "%s%s".format(col, tempRes)
+              if (isContainsTimeBound) {
+                colBase match {
+                  case "earliest" => {
+                    tws = anySent.toInt
+                  }
+                  case "latest" => {
+                    twf = anySent.toInt
+                  }
+                }
+                ""
+              } else {
+                val tempRes = anySent.replaceAll("([\"'])", """\\"""")
+                "%s%s".format(col, tempRes)
+              }
             }
           }
-          //*/
         }
       }
       resStr
     }
+  }
+
+  /***
+   * Methods for parsing date from string
+   */
+
+  def dateParser(str: String): String =  {
+    val formatter = DateTimeFormatter.ofPattern("MM/dd/yyyy:HH:mm:ss")
+    val baseDateFormat = """\d{1,2}/\d{2}/\d{4}:\d{2}:\d{2}:\d{2}""".r
+    val dateNow = new LocalDate()
+    var week = 0
+    var day = 0
+    var hour = 0
+    def relativeDateFormatOnes = """-|\+""".r.? ~ """@""".r.? ~ """\d+""".r.? ~ """w|d|h|m|s""".r ^^ {
+      case signOpt ~ dogOpt ~ numOpt ~ indicator => {
+        val sign = signOpt.getOrElse("")
+        val dog = dogOpt.getOrElse("")
+        val num = numOpt.getOrElse("")
+        indicator match {
+          case w => { if (dog != "") week = dateNow.getDayOfWeek }
+          case d => {         }
+          case h => {         }
+          case _ => {         }
+        }
+      }
+    }
+    val stringBaseFormat = baseDateFormat.findFirstIn(str).getOrElse("")
+    println(stringBaseFormat)
+    if (stringBaseFormat != "") {
+      val dateTime = LocalDate.parse(stringBaseFormat,formatter)
+      println(dateTime)
+    }
+    ""
   }
 
   /***
@@ -230,8 +296,8 @@ class IndexLikeSentenceConverter extends RegexParsers {
     */
 
     //bufferOtherSentence = bufferOtherSentence.map(_.trim).mkString(" ").trim.split(" ").toBuffer
-
-    IndexApacheLog(bufferIndexLog, bufferOtherSentence.mkString(" "))
+    val buffRes = bufferOtherSentence.flatMap(x => x.split(" ").map(_.trim)).filter(x => x != "").mkString(" ")
+    IndexApacheLog(bufferIndexLog, buffRes)
   }
 
   /***
@@ -245,7 +311,7 @@ class IndexLikeSentenceConverter extends RegexParsers {
         s"""{"query": "$groupCol","fields": ${bufferWithoutIndex.mkString(", ")}}"""
       } else {
         apBuffer.map(ap => {
-          s"""{"$ap":{"query": "$groupCol", "tws": 0, "twf": 0}}"""
+          s"""{"$ap":{"query": "$groupCol", "tws": "$tws", "twf": "$twf"}}"""
         }).mkString(",")
       }
     }
@@ -277,11 +343,14 @@ object IndexLikeSentenceConverter {
 
 object SimpleParser {
   def main(args: Array[String]): Unit = {
-    val str = s"""index=test text=RUB text{2}.val!=null OR (1=1))"""
+    val str = s"""index=test text=RUB text{2}.val!=null OR (1=1) earliest=12334 latest=23445"""
     //val originalSpl = s"""index=test (text=\"RUB\" text{2}.val!=null) OR 1=1""""
     //{"test":{"query": "((text=\"RUB\") AND ('text{2}.val'!=\"null\") OR (1=1))", "tws": 0, "twf": 0}}
     //val str = s"""index=test NOT col1=20"""
-    println("""{"test": {"query": "('num{1}.val'=10)", "tws": 0, "twf": 0}}""")
+    //println("""{"test": {"query": "('num{1}.val'=10)", "tws": 0, "twf": 0}}""")
+    val createParserInstance = new IndexLikeSentenceConverter
+    val strTest = """"11/22/2017:20:00:00""""
+    createParserInstance.dateParser(strTest)
     println(IndexLikeSentenceConverter.getParser(str))
   }
 }
